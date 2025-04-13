@@ -1,0 +1,35 @@
+
+/* Root container styles */
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  text-align: left;
+}
+
+/* Animation keyframes for spinners and loaders */
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive chart container for small screens */
+@media (max-width: 640px) {
+  .chart-container {
+    height: 200px !important;
+  }
+}
+
+/* Responsive adjustments for tables on small screens */
+@media (max-width: 480px) {
+  .table-responsive th,
+  .table-responsive td {
+    padding: 0.5rem 0.25rem;
+    font-size: 0.75rem;
+  }
+}
