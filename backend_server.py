@@ -1,23 +1,28 @@
 import os
-import certifi
 import hashlib
 import tempfile
 import time
 import traceback
 from datetime import datetime
 from typing import List, Optional
+from io import BytesIO
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from pymongo import MongoClient
-from dotenv import load_dotenv
-load_dotenv()
+##############################################
+# PyPDF2 for PDF text extraction
+##############################################
+try:
+    from PyPDF2 import PdfReader
+except ImportError:
+    print("Warning: PyPDF2 is not installed. PDF extraction may fail.")
+    PdfReader = None
 
 ##############################################
-# REPORTLAB for PDF
+# ReportLab for PDF generation
 ##############################################
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
@@ -27,9 +32,17 @@ from reportlab.lib.styles import getSampleStyleSheet
 ##############################################
 from openai import OpenAI  # or however you import your custom OpenAI library
 
+##############################################
+# Load environment
+##############################################
+from dotenv import load_dotenv
+import certifi
+from pymongo import MongoClient
+
+load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    print("Warning: No OPENAI_API_KEY found in environment. The index/report endpoints may fail.")
+    print("Warning: No OPENAI_API_KEY found in environment. LLM endpoints may fail.")
 
 ##############################################
 # Initialize FastAPI + CORS
@@ -66,7 +79,7 @@ except Exception as e:
     print("Failed to initialize OpenAI client:", str(e))
 
 ##############################################
-# In-Memory Doc Mocks
+# In-memory doc storage (for “upload” docs)
 ##############################################
 huggingface_docs = [
     {"id": "HF1", "name": "HugFaceDoc1", "pad_doc": "Some HF doc text..."},
@@ -75,7 +88,7 @@ huggingface_docs = [
 upload_storage = {}  # doc_id -> { "name": str, "pad_doc": str }
 
 ##############################################
-# Helper Models
+# Pydantic Models
 ##############################################
 class DocumentEntry(BaseModel):
     id: str
@@ -147,11 +160,9 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
         # If no client is configured, return a mock
         return "(OpenAI client not configured, returning mock text.)"
 
-    # We’re calling the LLM with a question (the user_prompt) plus a file_search tool
-    # that references the same vector_store_id used in your /chat route:
     try:
         response = openai_client.responses.create(
-            model="gpt-4o",  # or whichever you want, e.g. st.session_state["selected_model"]
+            model="gpt-4o",  # or any model e.g. "gpt-4o-mini"
             input=user_prompt,
             tools=[{
                 "type": "file_search",
@@ -159,11 +170,11 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
                 "max_num_results": 30
             }]
         )
-        # Extract final text from your client’s response object:
+        # Extract final text from your client's response:
         if len(response.output) > 1 and hasattr(response.output[1], "content"):
             content_list = response.output[1].content  # typically a list
             if content_list and isinstance(content_list, list):
-                # take the first chunk’s text if it exists
+                # Take the first chunk’s text
                 first_chunk = content_list[0]
                 answer = first_chunk.text if hasattr(first_chunk, "text") else "(No text found)"
             else:
@@ -176,13 +187,10 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
         if usage and hasattr(usage, "input_tokens"):
             input_tokens = usage.input_tokens
             output_tokens = usage.output_tokens
-            # If you want to show cost, adapt your formula:
-            # e.g. cost = (input_tokens / 1000)*0.005 + (output_tokens / 1000)*0.015
-            # Or use your custom PRICING dict, etc.
-            cost_estimate = "(Cost info...)"  # build something real
+            cost_estimate = "(Cost calculation here...)"
             answer += (
                 "\n\n---\n"
-                f"🧮 **Usage Summary**\n"
+                "🧮 **Usage Summary**\n"
                 f"- Input tokens: {input_tokens}\n"
                 f"- Output tokens: {output_tokens}\n"
                 f"- Estimated cost: {cost_estimate}\n"
@@ -194,13 +202,12 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
         return f"Error calling openai_client in do_fcv_analysis: {str(e)}"
 
 
-
 ##############################################
 # Root Endpoint
 ##############################################
 @app.get("/")
 def root():
-    return {"message": "Backend up with real indexing approach + PDF support."}
+    return {"message": "Backend up with PDF support + real indexing approach."}
 
 
 ##############################################
@@ -270,22 +277,52 @@ def get_document_preview(document_id: str):
 ##############################################
 @app.post("/documents/upload", response_model=DocumentEntry)
 async def upload_document(file: UploadFile = File(...)):
-    content = await file.read()
-    text_decoded = content.decode("utf-8", errors="replace")
-    new_id = f"UP_{len(upload_storage) + 1}"
+    """
+    Upload any file (.pdf, .txt, etc.), parse to text, store in memory under upload_storage.
+    """
+    try:
+        content = await file.read()
+        filename = file.filename
+        extension = filename.split(".")[-1].lower()
+        extracted_text = ""
 
-    upload_storage[new_id] = {
-        "name": file.filename,
-        "pad_doc": text_decoded
-    }
+        if extension == "pdf":
+            # Attempt PDF text extraction with PyPDF2
+            if not PdfReader:
+                # If PyPDF2 isn't installed or import failed
+                raise HTTPException(500, "PyPDF2 not available to parse PDF files.")
 
-    short_prev = text_decoded[:60] + "..." if len(text_decoded) > 60 else text_decoded
-    return DocumentEntry(
-        id=new_id,
-        name=file.filename,
-        source="upload",
-        preview=short_prev
-    )
+            try:
+                reader = PdfReader(BytesIO(content))
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        extracted_text += page_text + "\n"
+            except Exception as e:
+                # Fallback to a raw decode if PDF parsing fails
+                print("PDF parsing error:", e)
+                extracted_text = f"(Error extracting PDF text: {e})\n\n"
+                extracted_text += content.decode("utf-8", errors="replace")
+
+        else:
+            # If it's not PDF, just treat as text
+            extracted_text = content.decode("utf-8", errors="replace")
+
+        new_id = f"UP_{len(upload_storage) + 1}"
+        upload_storage[new_id] = {
+            "name": filename,
+            "pad_doc": extracted_text
+        }
+
+        short_prev = extracted_text[:60] + "..." if len(extracted_text) > 60 else extracted_text
+        return DocumentEntry(
+            id=new_id,
+            name=filename,
+            source="upload",
+            preview=short_prev
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Error uploading/parsing file: {str(e)}")
 
 
 ##############################################
@@ -294,8 +331,8 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/documents/{document_id}/index", response_model=IndexResponse)
 def index_document(document_id: str):
     """
-    Called to index the doc in a vector store. 
-    Right now, we mock it, but you can do real logic with openai_client.
+    Called to index the doc in a vector store.
+    We can do real logic with openai_client or mock it.
     """
     print(f"POST /documents/{document_id}/index => Start indexing...")
 
@@ -349,6 +386,7 @@ def chat_document(document_id: str, payload: ChatRequest):
 
     user_message = payload.message
     now = datetime.now().isoformat()
+    answer = ""
 
     if not openai_client:
         # Fallback: just return excerpt
@@ -359,7 +397,6 @@ def chat_document(document_id: str, payload: ChatRequest):
         )
     else:
         # Example usage with openai_client:
-        # Adjust model, tools, etc. as needed.
         try:
             response = openai_client.responses.create(
                 model="gpt-4o",  # or whichever model you prefer
@@ -371,7 +408,6 @@ def chat_document(document_id: str, payload: ChatRequest):
                 }]
             )
             # Extract the final text
-            # This depends on your openai_client's structure
             if len(response.output) > 1 and hasattr(response.output[1], "content"):
                 content_list = response.output[1].content  # typically a list
                 if content_list and isinstance(content_list, list):
@@ -415,11 +451,9 @@ def generate_report(document_id: str, body: ReportRequest):
 
     user_prompt = body.prompt
 
-    # Now call the updated do_fcv_analysis with the vector_store_id
     final_text = do_fcv_analysis(doc_text, user_prompt, vs_id)
 
     return ReportResponse(reportText=final_text)
-
 
 
 ##############################################

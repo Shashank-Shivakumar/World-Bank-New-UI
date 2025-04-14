@@ -241,11 +241,11 @@ export function AppSidebar({
       </SidebarContent>
 
       {/* ---- FOOTER ---- */}
-      <SidebarFooter className="border-t p-4">
+      {/*<SidebarFooter className="border-t p-4">
         <div className="text-xs text-muted-foreground text-center">
           World Bank AI Analyzer v1.0
         </div>
-      </SidebarFooter>
+      </SidebarFooter>*/}
     </Sidebar>
   );
 }

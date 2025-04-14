@@ -8,3 +8,12 @@ json
 python-dotenv
 PyPDF2
 reportlab
+openai
+fastapi
+uvicorn
+certifi
+reportlab
+requests
+pymongo
+dotenv
+python-multipart
