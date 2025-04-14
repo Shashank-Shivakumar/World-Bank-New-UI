@@ -39,7 +39,7 @@ import { SidebarInset } from "@/components/ui/sidebar";
  */
 const AnalyzePage = () => {
   // 1) Data Source & Document States
-  const [dataSource, setDataSource] = useState<"huggingface" | "mongodb" | "upload">("huggingface");
+  const [dataSource, setDataSource] = useState<"huggingface" | "mongodb" | "upload">("mongodb");
   const [documents, setDocuments] = useState<DocumentSource[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentSource | null>(null);
 
@@ -257,13 +257,13 @@ const AnalyzePage = () => {
                       className="mb-6"
                     >
                       <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="huggingface" id="huggingface" />
-                          <Label htmlFor="huggingface">Hugging Face</Label>
-                        </div>
+                        {/*<div className="flex items-center space-x-2">*/}
+                        {/*  <RadioGroupItem value="huggingface" id="huggingface" />*/}
+                        {/*  <Label htmlFor="huggingface">Hugging Face</Label>*/}
+                        {/*</div>*/}
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="mongodb" id="mongodb" />
-                          <Label htmlFor="mongodb">MongoDB</Label>
+                          <Label htmlFor="mongodb">World Bank DB</Label>
                         </div>
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="upload" id="upload" />
@@ -345,54 +345,54 @@ const AnalyzePage = () => {
                     )}
 
                     {/* If doc is indexed, show FCV Score progress bar */}
-                    {isIndexed && fcvScore !== null && (
-                      <Collapsible
-                        open={showFCVResults}
-                        onOpenChange={setShowFCVResults}
-                        className="mt-6 border rounded-md p-3"
-                      >
-                        <CollapsibleTrigger asChild>
-                          <div className="flex items-center justify-between cursor-pointer">
-                            <div className="flex items-center">
-                              <BarChart className="h-5 w-5 mr-2 text-primary" />
-                              <h3 className="text-lg font-medium">FCV Analysis Results</h3>
-                            </div>
-                            {showFCVResults ? (
-                              <ChevronUp className="h-4 w-4" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4" />
-                            )}
-                          </div>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="mt-3">
-                          <div className="space-y-3">
-                            <div>
-                              <Label>Overall FCV Sensitivity Score</Label>
-                              <div className="mt-2 bg-secondary rounded-full h-4">
-                                <div
-                                  className="bg-primary h-4 rounded-full transition-all"
-                                  style={{ width: `${fcvScore}%` }}
-                                />
-                              </div>
-                              <div className="flex justify-between mt-1 text-sm">
-                                <span>0</span>
-                                <span>{fcvScore}%</span>
-                                <span>100</span>
-                              </div>
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              This document has a{" "}
-                              {fcvScore < 30
-                                ? "low"
-                                : fcvScore < 70
-                                ? "medium"
-                                : "high"}{" "}
-                              FCV sensitivity score.
-                            </div>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
+                    {/*{isIndexed && fcvScore !== null && (*/}
+                    {/*  // <Collapsible*/}
+                    {/*  //   open={showFCVResults}*/}
+                    {/*  //   onOpenChange={setShowFCVResults}*/}
+                    {/*  //   className="mt-6 border rounded-md p-3"*/}
+                    {/*  // >*/}
+                    {/*  //   <CollapsibleTrigger asChild>*/}
+                    {/*  //     <div className="flex items-center justify-between cursor-pointer">*/}
+                    {/*  //       <div className="flex items-center">*/}
+                    {/*  //         <BarChart className="h-5 w-5 mr-2 text-primary" />*/}
+                    {/*  //         <h3 className="text-lg font-medium">FCV Analysis Results</h3>*/}
+                    {/*  //       </div>*/}
+                    {/*  //       {showFCVResults ? (*/}
+                    {/*  //         <ChevronUp className="h-4 w-4" />*/}
+                    {/*  //       ) : (*/}
+                    {/*  //         <ChevronDown className="h-4 w-4" />*/}
+                    {/*  //       )}*/}
+                    {/*  //     </div>*/}
+                    {/*  //   </CollapsibleTrigger>*/}
+                    {/*  //   <CollapsibleContent className="mt-3">*/}
+                    {/*  //     <div className="space-y-3">*/}
+                    {/*  //       <div>*/}
+                    {/*  //         <Label>Overall FCV Sensitivity Score</Label>*/}
+                    {/*  //         <div className="mt-2 bg-secondary rounded-full h-4">*/}
+                    {/*  //           <div*/}
+                    {/*  //             className="bg-primary h-4 rounded-full transition-all"*/}
+                    {/*  //             style={{ width: `${fcvScore}%` }}*/}
+                    {/*  //           />*/}
+                    {/*  //         </div>*/}
+                    {/*  //         <div className="flex justify-between mt-1 text-sm">*/}
+                    {/*  //           <span>0</span>*/}
+                    {/*  //           <span>{fcvScore}%</span>*/}
+                    {/*  //           <span>100</span>*/}
+                    {/*  //         </div>*/}
+                    {/*  //       </div>*/}
+                    {/*  //       <div className="text-sm text-muted-foreground">*/}
+                    {/*  //         This document has a{" "}*/}
+                    {/*  //         {fcvScore < 30*/}
+                    {/*  //           ? "low"*/}
+                    {/*  //           : fcvScore < 70*/}
+                    {/*  //           ? "medium"*/}
+                    {/*  //           : "high"}{" "}*/}
+                    {/*  //         FCV sensitivity score.*/}
+                    {/*  //       </div>*/}
+                    {/*  //     </div>*/}
+                    {/*  //   </CollapsibleContent>*/}
+                    {/*  // </Collapsible>*/}
+                    {/*)}*/}
                   </CardContent>
                 </Card>
               </div>
