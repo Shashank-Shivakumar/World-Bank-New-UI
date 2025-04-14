@@ -136,23 +136,63 @@ def find_doc_text_by_id(document_id: str) -> Optional[str]:
 def compute_doc_hash(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
-def do_fcv_analysis(doc_text: str, user_prompt: str) -> str:
+def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> str:
     """
-    Example function that calls your LLM or does custom logic.
-    Return a big string with the final analysis.
-    Replace this with your real GPT calls if desired.
+    Example function that calls your LLM to generate the final 'report' text.
+    We replicate the logic from the Streamlit query_document approach:
+      1) Perform a search on vector_store_id
+      2) Return the final LLM text plus usage/cost info
     """
-    # Mock demonstration:
-    analysis_text = (
-        f"Here's a detailed evaluation of the PAD using the FCV Protocol.\n\n"
-        f"**User Prompt:** {user_prompt}\n\n"
-        f"**Document Excerpt:** {doc_text[:500]}...\n\n"
-        "### Characteristic 1\nDetailed analysis...\n\n"
-        "### Characteristic 2\n...\n\n"
-        "## Usage Summary\n"
-        "Input tokens: 8018\nOutput tokens: 1321\nEstimated cost: $0.05991\n"
-    )
-    return analysis_text
+    if not openai_client:
+        # If no client is configured, return a mock
+        return "(OpenAI client not configured, returning mock text.)"
+
+    # We’re calling the LLM with a question (the user_prompt) plus a file_search tool
+    # that references the same vector_store_id used in your /chat route:
+    try:
+        response = openai_client.responses.create(
+            model="gpt-4o",  # or whichever you want, e.g. st.session_state["selected_model"]
+            input=user_prompt,
+            tools=[{
+                "type": "file_search",
+                "vector_store_ids": [vector_store_id],
+                "max_num_results": 30
+            }]
+        )
+        # Extract final text from your client’s response object:
+        if len(response.output) > 1 and hasattr(response.output[1], "content"):
+            content_list = response.output[1].content  # typically a list
+            if content_list and isinstance(content_list, list):
+                # take the first chunk’s text if it exists
+                first_chunk = content_list[0]
+                answer = first_chunk.text if hasattr(first_chunk, "text") else "(No text found)"
+            else:
+                answer = "(No content returned from the LLM)"
+        else:
+            answer = "(No output array returned.)"
+
+        # Optionally, if your client returns usage info, you can append usage/cost:
+        usage = getattr(response, "usage", None)
+        if usage and hasattr(usage, "input_tokens"):
+            input_tokens = usage.input_tokens
+            output_tokens = usage.output_tokens
+            # If you want to show cost, adapt your formula:
+            # e.g. cost = (input_tokens / 1000)*0.005 + (output_tokens / 1000)*0.015
+            # Or use your custom PRICING dict, etc.
+            cost_estimate = "(Cost info...)"  # build something real
+            answer += (
+                "\n\n---\n"
+                f"🧮 **Usage Summary**\n"
+                f"- Input tokens: {input_tokens}\n"
+                f"- Output tokens: {output_tokens}\n"
+                f"- Estimated cost: {cost_estimate}\n"
+            )
+
+        return answer
+
+    except Exception as e:
+        return f"Error calling openai_client in do_fcv_analysis: {str(e)}"
+
 
 
 ##############################################
@@ -322,12 +362,12 @@ def chat_document(document_id: str, payload: ChatRequest):
         # Adjust model, tools, etc. as needed.
         try:
             response = openai_client.responses.create(
-                model="gpt-4o-mini",  # or whichever model you prefer
+                model="gpt-4o",  # or whichever model you prefer
                 input=user_message,
                 tools=[{
                     "type": "file_search",
                     "vector_store_ids": [vs_id],
-                    "max_num_results": 5
+                    "max_num_results": 30
                 }]
             )
             # Extract the final text
@@ -360,18 +400,26 @@ def chat_document(document_id: str, payload: ChatRequest):
 @app.post("/documents/{document_id}/report", response_model=ReportResponse)
 def generate_report(document_id: str, body: ReportRequest):
     """
-    Return raw text from LLM analysis, akin to your do_fcv_analysis.
+    Return text from a real LLM analysis, akin to your do_fcv_analysis in Streamlit.
     """
     doc_text = find_doc_text_by_id(document_id)
     if not doc_text:
         raise HTTPException(404, f"Document {document_id} not found")
 
-    # Optionally find vector store ID, do deeper logic
-    # For now, we just call a simple do_fcv_analysis:
+    # Check if there's a vector store for this doc (so the LLM can do file_search)
+    doc_hash = compute_doc_hash(doc_text)
+    mapping = mappings_collection.find_one({"doc_hash": doc_hash})
+    if not mapping or not mapping.get("vector_store_id"):
+        raise HTTPException(400, "Document not indexed or no vector_store_id found. Please index first.")
+    vs_id = mapping["vector_store_id"]
+
     user_prompt = body.prompt
-    final_text = do_fcv_analysis(doc_text, user_prompt)
+
+    # Now call the updated do_fcv_analysis with the vector_store_id
+    final_text = do_fcv_analysis(doc_text, user_prompt, vs_id)
 
     return ReportResponse(reportText=final_text)
+
 
 
 ##############################################

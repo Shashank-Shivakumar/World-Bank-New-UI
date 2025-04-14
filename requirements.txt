@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+tiktoken
+openai
+altair
+json
+python-dotenv
+PyPDF2
+reportlab
