@@ -262,6 +262,57 @@ def index_document_logic(document_id: str, doc_text: str) -> str:
         print("Indexing response error:", str(e))
     return vector_store_id
 
+def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> str:
+    """
+    Example function that calls your LLM to generate the final 'report' text.
+    We replicate the logic from the Streamlit query_document approach:
+      1) Perform a search on vector_store_id
+      2) Return the final LLM text plus usage/cost info
+    """
+    if not openai_client:
+        # If no client is configured, return a mock
+        return "(OpenAI client not configured, returning mock text.)"
+
+    try:
+        response = openai_client.responses.create(
+            model="gpt-4o",  # or any model e.g. "gpt-4o-mini"
+            input=user_prompt,
+            tools=[{
+                "type": "file_search",
+                "vector_store_ids": [vector_store_id],
+                "max_num_results": 30
+            }]
+        )
+        # Extract final text from your client's response:
+        if len(response.output) > 1 and hasattr(response.output[1], "content"):
+            content_list = response.output[1].content  # typically a list
+            if content_list and isinstance(content_list, list):
+                # Take the first chunk’s text
+                first_chunk = content_list[0]
+                answer = first_chunk.text if hasattr(first_chunk, "text") else "(No text found)"
+            else:
+                answer = "(No content returned from the LLM)"
+        else:
+            answer = "(No output array returned.)"
+
+        # Optionally, if your client returns usage info, you can append usage/cost:
+        usage = getattr(response, "usage", None)
+        if usage and hasattr(usage, "input_tokens"):
+            input_tokens = usage.input_tokens
+            output_tokens = usage.output_tokens
+            cost_estimate = "(Cost calculation here...)"
+            answer += (
+                "\n\n---\n"
+                "🧮 **Usage Summary**\n"
+                f"- Input tokens: {input_tokens}\n"
+                f"- Output tokens: {output_tokens}\n"
+                f"- Estimated cost: {cost_estimate}\n"
+            )
+
+        return answer
+
+    except Exception as e:
+        return f"Error calling openai_client in do_fcv_analysis: {str(e)}"
 
 ##############################################
 # Endpoints
@@ -305,11 +356,48 @@ def get_document_preview(document_id: str):
     return text
 
 
+# @app.post("/documents/upload", response_model=DocumentEntry)
+# async def upload_document(file: UploadFile = File(...)):
+#     """
+#     Uploads and parses a document (PDF or text), stores it in memory,
+#     and automatically indexes the document.
+#     """
+#     try:
+#         content = await file.read()
+#         filename = file.filename
+#         extension = filename.split(".")[-1].lower()
+#         extracted_text = ""
+#         if extension == "pdf":
+#             if not PdfReader:
+#                 raise HTTPException(500, "PyPDF2 not available to parse PDF files.")
+#             try:
+#                 reader = PdfReader(BytesIO(content))
+#                 for page in reader.pages:
+#                     page_text = page.extract_text()
+#                     if page_text:
+#                         extracted_text += page_text + "\n"
+#             except Exception as e:
+#                 print("PDF parsing error:", e)
+#                 extracted_text = f"(Error extracting PDF text: {e})\n\n" + content.decode("utf-8", errors="replace")
+#         else:
+#             extracted_text = content.decode("utf-8", errors="replace")
+#         new_id = f"UP_{len(upload_storage) + 1}"
+#         upload_storage[new_id] = {"name": filename, "pad_doc": extracted_text}
+#         # Automatically index the uploaded document.
+#         vector_store_id = index_document_logic(new_id, extracted_text)
+#         print(f"Uploaded file auto-indexed with vector store id: {vector_store_id}")
+#         short_prev = extracted_text[:60] + "..." if len(extracted_text) > 60 else extracted_text
+#         return DocumentEntry(id=new_id, name=filename, source="upload", preview=short_prev)
+#     except Exception as e:
+#         raise HTTPException(500, f"Error uploading/parsing file: {str(e)}")
+#
+
 @app.post("/documents/upload", response_model=DocumentEntry)
 async def upload_document(file: UploadFile = File(...)):
     """
     Uploads and parses a document (PDF or text), stores it in memory,
     and automatically indexes the document.
+    The document_id is now extracted from the filename (first part before the underscore).
     """
     try:
         content = await file.read()
@@ -330,7 +418,15 @@ async def upload_document(file: UploadFile = File(...)):
                 extracted_text = f"(Error extracting PDF text: {e})\n\n" + content.decode("utf-8", errors="replace")
         else:
             extracted_text = content.decode("utf-8", errors="replace")
-        new_id = f"UP_{len(upload_storage) + 1}"
+
+        # Extract document_id from filename:
+        # If the filename contains an underscore, take the first part (e.g., "P164164" from "P164164_Project_Appraisal_Document.pdf").
+        # Otherwise, fall back to the previous behavior.
+        if "_" in filename:
+            new_id = filename.split("_")[0]
+        else:
+            new_id = f"UP_{len(upload_storage) + 1}"
+
         upload_storage[new_id] = {"name": filename, "pad_doc": extracted_text}
         # Automatically index the uploaded document.
         vector_store_id = index_document_logic(new_id, extracted_text)
