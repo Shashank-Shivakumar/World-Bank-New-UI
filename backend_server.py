@@ -314,6 +314,56 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
     except Exception as e:
         return f"Error calling openai_client in do_fcv_analysis: {str(e)}"
 
+def export_report_as_pdf(extracted_results, summary):
+    """
+    Export the extracted results and total score as a PDF.
+    """
+    pdf_buffer = BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer)
+    styles = getSampleStyleSheet()
+    story = []
+
+    def clean_text(text):
+        return text.replace("*", "").strip()
+
+    # Add the title & total score
+    story.append(Paragraph("Evaluation of the Project Appraisal Document (PAD) based on the FCV-Sensitivity Assessment Protocol", styles["Heading1"]))
+    story.append(Paragraph(f"Total FCV Sensitivity Score: {summary['total_score']}", styles["Heading2"]))
+    story.append(Paragraph("<br/>", styles["Normal"]))
+
+    # Add the overall summary
+    if summary['overall_summary']:
+        story.append(Paragraph("<b>Overall Summary:</b>", styles["Heading3"]))
+        story.append(Paragraph(clean_text(summary['overall_summary']), styles["Normal"]))
+        story.append(Paragraph("<br/>", styles["Normal"]))
+
+    # Add the extracted results
+    for characteristic, questions in extracted_results.items():
+        story.append(Paragraph(f"Characteristic: {clean_text(characteristic)}", styles["Heading3"]))
+        story.append(Paragraph("<br/>", styles["Normal"]))
+
+        for question_data in questions:
+            story.append(Paragraph(f"<b>Guiding Question:</b> {clean_text(question_data['question'])}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+            story.append(Paragraph(f"<b>Analysis:</b> {clean_text(question_data['analysis'])}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+            story.append(Paragraph(f"<b>Score:</b> {question_data['score']}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+            probabilities = question_data['probabilities']
+            prob_line = ", ".join([f"{score}: {probability:.2f}" for score, probability in probabilities.items()])
+            story.append(Paragraph(f"<b>Probabilities:</b> {prob_line}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+    # Build the PDF
+    doc.build(story)
+    pdf_data = pdf_buffer.getvalue()
+    pdf_buffer.close()
+    return pdf_data
+
+
 ##############################################
 # Endpoints
 ##############################################
@@ -354,6 +404,31 @@ def get_document_preview(document_id: str):
     if text is None:
         raise HTTPException(404, f"Document {document_id} not found")
     return text
+
+
+@app.post("/documents/{document_id}/export-pdf")
+def export_pdf(document_id: str, payload: PDFRequestPayload):
+    """
+    Generates a PDF report from the extracted results and summary.
+    """
+    extracted_results = payload.extracted_results  # Replace with actual extracted results
+    summary = payload.summary  # Replace with actual summary data
+
+    if not extracted_results or not summary:
+        raise HTTPException(status_code=400, detail="Invalid data for PDF generation")
+
+    try:
+        # Generate the PDF using the provided function
+        pdf_data = export_report_as_pdf(extracted_results, summary)
+
+        # Return the PDF as a downloadable file
+        return FileResponse(
+            BytesIO(pdf_data),
+            media_type="application/pdf",
+            filename=f"report_{document_id}.pdf"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
 
 
 # @app.post("/documents/upload", response_model=DocumentEntry)
