@@ -13,6 +13,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from fastapi import BackgroundTasks
 
 ##############################################
 # PyPDF2 for PDF text extraction
@@ -303,7 +304,7 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
             cost_estimate = "(Cost calculation here...)"
             answer += (
                 "\n\n---\n"
-                "🧮 **Usage Summary**\n"
+                "🧮 **Usage Details**\n"
                 f"- Input tokens: {input_tokens}\n"
                 f"- Output tokens: {output_tokens}\n"
                 f"- Estimated cost: {cost_estimate}\n"
@@ -313,6 +314,112 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
 
     except Exception as e:
         return f"Error calling openai_client in do_fcv_analysis: {str(e)}"
+
+def extract_report_content(llm_output: str):
+    """
+    Extract scores and probabilities from the LLM output.
+    """
+    output = {}
+    total_score = 0
+    characteristic = None
+    current_question = None
+    overall_summary = None
+
+    lines = llm_output.split('\n')
+    for i, line in enumerate(lines):
+        # Match characteristic headers
+        char_match = re.match(r'.*Characteristic \d+: (.+)', line)
+        if char_match:
+            characteristic = char_match.group(1).strip()
+            output[characteristic] = []
+            continue
+        
+        # Match guiding question
+        question_match = re.match(r'.*Guiding Question(.+)', line)
+        if question_match and characteristic:
+            current_question = question_match.group(1).strip()
+            output[characteristic].append({
+                'question': current_question,
+                'analysis': None,
+                'probabilities': {},
+                'score': None
+            })
+            continue
+        
+        # Match analysis line
+        analysis_match = re.match(r'.*Analysis:(.+)', line)
+        if analysis_match and characteristic and current_question:
+            analysis = analysis_match.group(1).replace("*", "").strip()
+            if output[characteristic]:
+                if analysis:
+                    output[characteristic][-1]['analysis'] = analysis
+                else:
+                    for j in range(i + 1, len(lines)):
+                        next_line = lines[j].strip()
+                        if next_line:
+                            output[characteristic][-1]['analysis'] = next_line
+                        break
+            continue
+
+        # Match probabilities line
+        prob_match = re.match(r'.*Probabilities:.* score 0 \[(\d+(\.\d+)?)\], score 1 \[(\d+(\.\d+)?)\], score 2 \[(\d+(\.\d+)?)\], score 3 \[(\d+(\.\d+)?)\]', line)
+        if prob_match and characteristic and current_question:
+            probs = list(map(float, prob_match.groups()[::2]))
+            probs_dict = {
+                'score_0': probs[0],
+                'score_1': probs[1],
+                'score_2': probs[2],
+                'score_3': probs[3],
+            }
+            # Get all indices (scores) with the maximum probability
+            max_prob = max(probs)
+            max_score = probs.index(max_prob)
+            output[characteristic][-1]['probabilities'] = probs_dict
+            output[characteristic][-1]['score'] = max_score
+            total_score += max_score
+            continue
+
+        # Match probabilities in format 1 (list format)
+        if line.strip().replace("*", "") == "Probabilities:" and characteristic and current_question:
+            probabilities = {}
+            for j in range(i + 1, len(lines)):
+                prob_line = lines[j].strip()
+                if not prob_line or not prob_line.startswith("-"):
+                    break
+                prob_match = re.match(r'(?i)-\s*score\s*(\d)\s*[:\[]\s*(\d+(\.\d+)?)\s*[\]]?', prob_line)
+                if prob_match:
+                    score = int(prob_match.group(1))
+                    probability = float(prob_match.group(2))
+                    probabilities[f'score_{score}'] = probability
+            if probabilities and characteristic and current_question:
+                max_score = max(probabilities, key=lambda k: probabilities[k])
+                max_score_value = int(max_score.split("_")[1])
+                output[characteristic][-1]['probabilities'] = probabilities
+                output[characteristic][-1]['score'] = max_score_value
+                total_score += max_score_value
+            continue
+
+        # Match overall summary (on the same line or subsequent lines)
+        if "Summary" in line:
+            summary_line = line.split("Summary", 1)[-1].strip(":").replace("*", "").strip()
+            if summary_line:
+                overall_summary = summary_line
+            else:
+                # Check the next line(s) for the summary
+                for j in range(i + 1, len(lines)):
+                    next_line = lines[j].strip()
+                    if next_line:
+                        overall_summary = next_line
+                        break
+
+
+    # Combine total_score and overall_summary into a single dictionary
+    summary = {
+        "total_score": total_score,
+        "overall_summary": overall_summary
+    }
+
+    return output, summary
 
 def export_report_as_pdf(extracted_results, summary):
     """
@@ -407,23 +514,32 @@ def get_document_preview(document_id: str):
 
 
 @app.post("/documents/{document_id}/export-pdf")
-def export_pdf(document_id: str, payload: PDFRequestPayload):
+def export_pdf(document_id: str, payload: PDFRequestPayload, background_tasks: BackgroundTasks):
     """
     Generates a PDF report from the extracted results and summary.
     """
-    extracted_results = payload.extracted_results  # Replace with actual extracted results
-    summary = payload.summary  # Replace with actual summary data
+    extracted_results = payload.fullText
 
-    if not extracted_results or not summary:
+    if not extracted_results:
         raise HTTPException(status_code=400, detail="Invalid data for PDF generation")
 
     try:
         # Generate the PDF using the provided function
+        extracted_results, summary = extract_report_content(extracted_results)
+        # Export the report as a PDF
         pdf_data = export_report_as_pdf(extracted_results, summary)
+
+        # Save the PDF data to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(pdf_data)
+            tmp_file_path = tmp_file.name
+        
+        # Schedule the temporary file for deletion after the response is sent
+        background_tasks.add_task(os.unlink, tmp_file_path)
 
         # Return the PDF as a downloadable file
         return FileResponse(
-            BytesIO(pdf_data),
+            path=tmp_file_path,
             media_type="application/pdf",
             filename=f"report_{document_id}.pdf"
         )
