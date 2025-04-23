@@ -247,6 +247,20 @@ export const api = {
   async updateModelSettings(
     settings: Partial<ModelSettings>
   ): Promise<boolean> {
-    return false;
+    try {
+      const response = await fetch(`${API_URL}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update settings: ${response.statusText}`);
+      }
+      return true;
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      toast.error("Failed to update settings");
+      return false;
+    }
   },
 };

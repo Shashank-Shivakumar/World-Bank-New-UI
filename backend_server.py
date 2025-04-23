@@ -9,11 +9,10 @@ from datetime import datetime
 from typing import List, Optional
 from io import BytesIO
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from fastapi import BackgroundTasks
 
 ##############################################
 # PyPDF2 for PDF text extraction
@@ -46,6 +45,13 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     print("Warning: No OPENAI_API_KEY found in environment. LLM endpoints may fail.")
+
+# Global variable to store model settings
+model_settings = {
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "max_tokens": 1024
+}
 
 app = FastAPI()
 app.add_middleware(
@@ -93,6 +99,12 @@ class DocumentEntry(BaseModel):
     name: str
     source: str
     preview: Optional[str] = None
+
+
+class ModelSettings(BaseModel):
+    model: str
+    temperature: float
+    maxTokens: int
 
 
 class ChatRequest(BaseModel):
@@ -275,14 +287,17 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
         return "(OpenAI client not configured, returning mock text.)"
 
     try:
+        # Use the updated settings
         response = openai_client.responses.create(
-            model="gpt-4o",  # or any model e.g. "gpt-4o-mini"
+            model=model_settings["model"],  # Use the updated model
             input=user_prompt,
             tools=[{
                 "type": "file_search",
                 "vector_store_ids": [vector_store_id],
                 "max_num_results": 30
-            }]
+            }],
+            temperature=model_settings["temperature"],  # Use the updated temperature
+            max_output_tokens=model_settings["max_tokens"]  # Use the updated max tokens
         )
         # Extract final text from your client's response:
         if len(response.output) > 1 and hasattr(response.output[1], "content"):
@@ -642,6 +657,23 @@ def index_document_endpoint(document_id: str):
         return IndexResponse(success=True, vector_store_id=vs_id, message="Document indexed.")
     except Exception as e:
         raise HTTPException(500, f"Indexing failed: {str(e)}")
+
+
+@app.post("/settings")
+def update_settings(settings: ModelSettings = Body(...)):
+    """
+    Updates the model settings.
+    """
+    global model_settings
+    try:
+        # Update the global settings
+        model_settings["model"] = settings.model
+        model_settings["temperature"] = settings.temperature
+        model_settings["max_tokens"] = settings.maxTokens
+        print("Updated settings:", model_settings)
+        return {"success": True, "message": "Settings updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating settings: {str(e)}")
 
 
 @app.post("/chat/{document_id}", response_model=ChatResponse)
