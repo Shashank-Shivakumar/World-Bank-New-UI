@@ -176,22 +176,28 @@ export const api = {
   /**
    * 7) POST /documents/{docId}/report => returns { reportText: string }
    */
-  async generateReport(documentId: string, prompt: string): Promise<{ reportText: string }> {
-    try {
-      const response = await fetch(`${API_URL}/documents/${documentId}/report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-      if (!response.ok) {
-        throw new Error(`Generate report error: ${response.statusText}`);
-      }
-      return await response.json(); // { reportText }
-    } catch (error) {
-      handleError(error);
-      return { reportText: "Error generating report." };
+async generateReport(documentId: string, prompt: string): Promise<{reportText: string}> {
+  console.log("[api] → generateReport", { documentId, prompt });
+  try {
+    const response = await fetch(`${API_URL}/documents/${documentId}/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    const text = await response.text();                  // grab raw text
+    console.log("[api] ← raw response:", text);
+    if (!response.ok) {
+      throw new Error(`Generate report failed: ${response.status} ${response.statusText}`);
     }
-  },
+    const json = JSON.parse(text);                       // then parse JSON
+    console.log("[api] ← parsed JSON:", json);
+    return json;
+  } catch (error) {
+    handleError(error);
+    return { reportText: "Error generating report." };
+  }
+}
+,
 
   /**
    * 8) POST /documents/{docId}/report-pdf => returns a PDF blob
