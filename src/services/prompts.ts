@@ -1,5 +1,3 @@
-// prompts.ts
-
 export const ALL_PROMPTS: Record<string, string> = {
   "Prompt detailed (Probabilities)": `
   You are an expert in Fragility, Conflict, and Violence (FCV) Sensitivity Assessment. Your task is to evaluate a Project Appraisal Document (PAD) based on the FCV-Sensitivity Assessment Protocol. Analyze the provided document text and answer the following guiding questions for each of the five characteristics. Assign a score (0-3) for each question and provide a detailed analysis to justify your score.

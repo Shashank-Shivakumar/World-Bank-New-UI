@@ -1,9 +1,7 @@
 import { toast } from "sonner";
 
-// Base API URL
 const API_URL = "http://localhost:8000";
 
-// Types
 export interface DocumentSource {
   id: string;
   name: string;
@@ -50,9 +48,6 @@ const handleError = (error: unknown) => {
 };
 
 export const api = {
-  /**
-   * 1) GET /documents/sources
-   */
   async getDocumentSources(): Promise<DocumentSource[]> {
     try {
       const response = await fetch(`${API_URL}/documents/sources`);
@@ -66,9 +61,6 @@ export const api = {
     }
   },
 
-  /**
-   * 2) GET /documents/{docId}/preview
-   */
   async getDocumentPreview(documentId: string): Promise<string> {
     try {
       const response = await fetch(
@@ -84,9 +76,6 @@ export const api = {
     }
   },
 
-  /**
-   * 3) POST /documents/upload
-   */
   async uploadDocument(file: File): Promise<DocumentSource> {
     try {
       const formData = new FormData();
@@ -111,9 +100,6 @@ export const api = {
     }
   },
 
-  /**
-   * 4) POST /documents/{docId}/index
-   */
   async indexDocument(documentId: string): Promise<boolean> {
     try {
       const response = await fetch(`${API_URL}/documents/${documentId}/index`, {
@@ -122,7 +108,7 @@ export const api = {
       if (!response.ok) {
         throw new Error(`Indexing error: ${response.statusText}`);
       }
-      const data = await response.json(); // { success, vector_store_id, message }
+      const data = await response.json();
       return data.success;
     } catch (error) {
       console.error(error);
@@ -130,9 +116,6 @@ export const api = {
     }
   },
 
-  /**
-   * 5) POST /chat/{docId}
-   */
   async sendMessage(
     documentId: string,
     message: string
@@ -156,9 +139,6 @@ export const api = {
     }
   },
 
-  /**
-   * 6) GET /export/{docId}?format=pdf|csv|json
-   */
   async exportData(
     documentId: string,
     format: "pdf" | "csv" | "json"
@@ -181,9 +161,6 @@ export const api = {
     }
   },
 
-  /**
-   * 7) POST /documents/{docId}/report => returns { reportText: string }
-   */
   async generateReport(
     documentId: string,
     prompt: string
@@ -201,17 +178,13 @@ export const api = {
       if (!response.ok) {
         throw new Error(`Generate report error: ${response.statusText}`);
       }
-      return await response.json(); // { reportText }
+      return await response.json();
     } catch (error) {
       handleError(error);
       return { reportText: "Error generating report." };
     }
   },
 
-  /**
-   * 8) POST /documents/{docId}/report-pdf => returns a PDF blob
-   * We'll pass { fullText: <the entire text> }
-   */
   async generateReportPdf(documentId: string, fullText: string): Promise<Blob> {
     try {
       const response = await fetch(
@@ -233,7 +206,6 @@ export const api = {
     }
   },
 
-  // Optional model config or other endpoints ...
   async getModels(): Promise<string[]> {
     return ["gpt-4o-mini", "gpt-4o", "gpt-4o-2024-05"];
   },
