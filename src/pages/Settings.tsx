@@ -66,7 +66,6 @@ export default function Settings() {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [hasFetchedSettings, setHasFetchedSettings] = useState(false);
 
-  // Mock data for charts
   const costData = [
     { date: "Apr 05", cost: 0.12 },
     { date: "Apr 06", cost: 0.23 },
@@ -89,7 +88,6 @@ export default function Settings() {
     { date: "Apr 12", input: 18000, output: 7200 },
   ];
 
-  // Mock usage history
   const usageHistory = [
     {
       id: 1,
@@ -151,7 +149,7 @@ export default function Settings() {
 
   useEffect(() => {
     const fetchSettings = async () => {
-      if (hasFetchedSettings) return; // Skip fetching if already fetched
+      if (hasFetchedSettings) return;
 
       setIsLoading(true);
       try {
@@ -160,7 +158,7 @@ export default function Settings() {
 
         const settings = await api.getModelSettings();
         setModelSettings(settings);
-        setHasFetchedSettings(true); // Mark settings as fetched
+        setHasFetchedSettings(true);
       } catch (error) {
         console.error("Error fetching settings:", error);
         toast.error("Error loading settings");
@@ -170,16 +168,15 @@ export default function Settings() {
     };
 
     fetchSettings();
-  }, [hasFetchedSettings]); // Dependency on `hasFetchedSettings`
+  }, [hasFetchedSettings]);
 
   const handleSaveSettings = async () => {
     setIsSaving(true);
     try {
-      // Send updated settings to the backend
       const success = await api.updateModelSettings(modelSettings);
       if (success) {
         toast.success("Settings saved successfully");
-        setHasFetchedSettings(true); // Ensure settings are marked as fetched
+        setHasFetchedSettings(true);
       } else {
         toast.error("Failed to save settings");
       }
@@ -384,7 +381,6 @@ export default function Settings() {
 
               <TabsContent value="usage">
                 <div className="grid grid-cols-1 gap-6">
-                  {/* Cost Over Time Chart - Now stacked vertically */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center">
@@ -425,7 +421,6 @@ export default function Settings() {
                     </CardContent>
                   </Card>
 
-                  {/* Total Tokens Over Time Chart - Now stacked vertically */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center">
@@ -474,7 +469,6 @@ export default function Settings() {
                     </CardContent>
                   </Card>
 
-                  {/* Usage History Table */}
                   <Card>
                     <CardHeader>
                       <CardTitle>Usage History</CardTitle>
