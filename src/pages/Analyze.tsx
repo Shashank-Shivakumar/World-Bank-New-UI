@@ -1,4 +1,3 @@
-// src/app/Analyze.tsx
 import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
@@ -15,7 +14,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  SelectSeparator
+  SelectSeparator,
 } from "@/components/ui/select";
 import {
   Loader2,
@@ -27,59 +26,34 @@ import {
   FileSpreadsheet,
   Bot,
   User,
-  MessageCircle
+  MessageCircle,
 } from "lucide-react";
 import { Collapsible } from "@/components/ui/collapsible";
 import { api, DocumentSource, ChatMessage } from "@/services/api";
 import { toast } from "sonner";
 import { SidebarInset } from "@/components/ui/sidebar";
 
-/**
- * The data sources we support. "huggingface" is optional if you want it enabled.
- */
 type DataSourceOption = "huggingface" | "mongodb" | "upload";
 
 const AnalyzePage = () => {
-  // ----------------------------
-  // 1) Data source + documents
-  // ----------------------------
   const [dataSource, setDataSource] = useState<DataSourceOption>("mongodb");
-
-  // All documents from the backend
   const [documents, setDocuments] = useState<DocumentSource[]>([]);
-  // The currently selected doc
-  const [selectedDocument, setSelectedDocument] = useState<DocumentSource | null>(null);
-  // The full text from /documents/{docId}/preview
+  const [selectedDocument, setSelectedDocument] =
+    useState<DocumentSource | null>(null);
   const [documentPreview, setDocumentPreview] = useState("");
-
-  // For “Show More” logic
   const [isFullPreview, setIsFullPreview] = useState(false);
 
-  // ----------------------------
-  // 2) Loading & indexing
-  // ----------------------------
   const [isLoading, setIsLoading] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [isIndexed, setIsIndexed] = useState(false);
 
-  // ----------------------------
-  // 3) Chat states
-  // ----------------------------
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentMessage, setCurrentMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
 
-  // ----------------------------
-  // 4) File upload state
-  // ----------------------------
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [selectSearch, setSelectSearch] = useState("");
 
-  // ---------------------------------
-  // 5) Local "search" inside dropdown
-  // ---------------------------------
-  const [selectSearch, setSelectSearch] = useState(""); // filters docs in the dropdown
-
-  // Load docs on mount
   useEffect(() => {
     const fetchDocs = async () => {
       setIsLoading(true);
@@ -96,22 +70,18 @@ const AnalyzePage = () => {
     fetchDocs();
   }, []);
 
-  // Filter the docs to only those that match our current dataSource
-  const sourceFilteredDocs = documents.filter((doc) => doc.source === dataSource);
+  const sourceFilteredDocs = documents.filter(
+    (doc) => doc.source === dataSource
+  );
 
-  // Filter again by the "selectSearch" text, so the user can live-search inside the dropdown.
   const dropdownDocs = sourceFilteredDocs.filter((doc) => {
     const searchTerm = selectSearch.toLowerCase();
-    // Match if doc.name or doc.id includes the search
     return (
       doc.name.toLowerCase().includes(searchTerm) ||
       doc.id.toLowerCase().includes(searchTerm)
     );
   });
 
-  /**
-   * If user picks "upload" => let them pick a file, call POST /documents/upload
-   */
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -120,7 +90,6 @@ const AnalyzePage = () => {
 
     try {
       const uploadedDoc = await api.uploadDocument(file);
-      // Add to our doc list
       setDocuments((prev) => [...prev, uploadedDoc]);
       setSelectedDocument(uploadedDoc);
       setDocumentPreview(uploadedDoc.preview || "");
@@ -136,9 +105,6 @@ const AnalyzePage = () => {
     }
   };
 
-  /**
-   * Called when user selects a doc from the dropdown
-   */
   const handleDocumentSelect = async (docId: string) => {
     setIsLoading(true);
     const doc = documents.find((d) => d.id === docId);
@@ -149,8 +115,8 @@ const AnalyzePage = () => {
 
     setSelectedDocument(doc);
     setIsIndexed(false);
-    setMessages([]); // Clear chat
-    setIsFullPreview(false); // Reset show-more state
+    setMessages([]);
+    setIsFullPreview(false);
 
     try {
       const preview = await api.getDocumentPreview(docId);
@@ -164,9 +130,6 @@ const AnalyzePage = () => {
     }
   };
 
-  /**
-   * POST /documents/{docId}/index
-   */
   const handleIndexDocument = async () => {
     if (!selectedDocument) return;
     setIsIndexing(true);
@@ -186,9 +149,6 @@ const AnalyzePage = () => {
     }
   };
 
-  /**
-   * Chat => calls /chat/{docId}
-   */
   const handleSendMessage = async () => {
     if (!currentMessage.trim() || !selectedDocument) return;
 
@@ -221,9 +181,6 @@ const AnalyzePage = () => {
     }
   };
 
-  /**
-   * GET /export/{docId}?format=pdf|csv|json
-   */
   const handleExport = async (format: "pdf" | "csv" | "json") => {
     if (!selectedDocument) return;
     setIsLoading(true);
@@ -242,9 +199,6 @@ const AnalyzePage = () => {
     setIsLoading(false);
   };
 
-  // -----------
-  // Show More
-  // -----------
   const isLongDoc = documentPreview.length > 800;
   const displayedText = isFullPreview
     ? documentPreview
@@ -255,7 +209,6 @@ const AnalyzePage = () => {
       <Header />
 
       <div className="flex flex-1">
-        {/* Our LLM-based sidebar */}
         <AppSidebar
           isIndexed={isIndexed}
           selectedDocumentId={selectedDocument?.id || null}
@@ -268,25 +221,21 @@ const AnalyzePage = () => {
             </h1>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* LEFT COLUMN: Data Source & doc selection */}
               <div className="lg:col-span-1">
                 <Card>
                   <CardContent className="pt-6">
-                    <h2 className="text-xl font-bold mb-4">Select Data Source</h2>
+                    <h2 className="text-xl font-bold mb-4">
+                      Select Data Source
+                    </h2>
 
-                    {/* Radio to pick data source */}
                     <RadioGroup
                       value={dataSource}
-                      onValueChange={(val) => setDataSource(val as DataSourceOption)}
+                      onValueChange={(val) =>
+                        setDataSource(val as DataSourceOption)
+                      }
                       className="mb-6"
                     >
                       <div className="flex items-center space-x-4">
-                        {/* If you want huggingface, uncomment:
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="huggingface" id="huggingface" />
-                          <Label htmlFor="huggingface">Hugging Face</Label>
-                        </div>
-                        */}
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="mongodb" id="mongodb" />
                           <Label htmlFor="mongodb">World Bank DB</Label>
@@ -298,7 +247,6 @@ const AnalyzePage = () => {
                       </div>
                     </RadioGroup>
 
-                    {/* If user picks "upload" => file input */}
                     {dataSource === "upload" ? (
                       <div className="mb-6">
                         <Label htmlFor="file-upload" className="mb-2 block">
@@ -312,11 +260,14 @@ const AnalyzePage = () => {
                             onChange={handleFileUpload}
                             className="flex-1"
                           />
-                          {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                          {isLoading && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
                         </div>
                         {uploadedFile && (
                           <p className="text-sm mt-2">
-                            {uploadedFile.name} ({Math.round(uploadedFile.size / 1024)} KB)
+                            {uploadedFile.name} (
+                            {Math.round(uploadedFile.size / 1024)} KB)
                           </p>
                         )}
                       </div>
@@ -327,7 +278,6 @@ const AnalyzePage = () => {
                         </Label>
                         <div className="flex items-center space-x-2 w-full">
                           <Select
-                            // Fire handleDocumentSelect on picking a doc
                             onValueChange={handleDocumentSelect}
                             disabled={isLoading || dropdownDocs.length === 0}
                           >
@@ -335,12 +285,13 @@ const AnalyzePage = () => {
                               <SelectValue placeholder="Select a document..." />
                             </SelectTrigger>
                             <SelectContent>
-                              {/* A small "search" input inside the dropdown */}
                               <div className="p-2">
                                 <Input
                                   placeholder="Search doc..."
                                   value={selectSearch}
-                                  onChange={(e) => setSelectSearch(e.target.value)}
+                                  onChange={(e) =>
+                                    setSelectSearch(e.target.value)
+                                  }
                                 />
                               </div>
                               <SelectSeparator />
@@ -359,7 +310,9 @@ const AnalyzePage = () => {
                             </SelectContent>
                           </Select>
 
-                          {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                          {isLoading && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
                         </div>
 
                         {dropdownDocs.length === 0 && !isLoading && (
@@ -370,7 +323,6 @@ const AnalyzePage = () => {
                       </div>
                     )}
 
-                    {/* Index Button */}
                     {selectedDocument && (
                       <Button
                         onClick={handleIndexDocument}
@@ -393,7 +345,6 @@ const AnalyzePage = () => {
                 </Card>
               </div>
 
-              {/* RIGHT COLUMN: Preview + Chat */}
               <div className="lg:col-span-2">
                 <Tabs defaultValue="preview" className="w-full">
                   <TabsList className="grid w-full grid-cols-2">
@@ -411,7 +362,6 @@ const AnalyzePage = () => {
                     </TabsTrigger>
                   </TabsList>
 
-                  {/* ======================== PREVIEW TAB ======================== */}
                   <TabsContent value="preview">
                     <Card>
                       <CardContent className="pt-6">
@@ -421,12 +371,13 @@ const AnalyzePage = () => {
                               <h3 className="text-xl font-bold">
                                 {selectedDocument.name}
                               </h3>
-                              {/* Show 'Show More' only if doc is >800 chars */}
                               {isLongDoc && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => setIsFullPreview(!isFullPreview)}
+                                  onClick={() =>
+                                    setIsFullPreview(!isFullPreview)
+                                  }
                                 >
                                   {isFullPreview ? "Show Less" : "Show More"}
                                 </Button>
@@ -436,15 +387,14 @@ const AnalyzePage = () => {
                             <div className="bg-muted p-4 rounded-md max-h-[500px] overflow-y-auto">
                               <p className="whitespace-pre-line text-sm">
                                 {documentPreview
-                                  ? // if doc is long, show partial or full
-                                    isLongDoc
-                                    ? displayedText + (isFullPreview ? "" : "...")
+                                  ? isLongDoc
+                                    ? displayedText +
+                                      (isFullPreview ? "" : "...")
                                     : documentPreview
                                   : "(No document content found.)"}
                               </p>
                             </div>
 
-                            {/* Export if indexed */}
                             {isIndexed && (
                               <div className="flex items-center justify-end space-x-2 mt-4">
                                 <span className="text-sm text-muted-foreground mr-2">
@@ -490,19 +440,18 @@ const AnalyzePage = () => {
                     </Card>
                   </TabsContent>
 
-                  {/* ======================== CHAT TAB ======================== */}
                   <TabsContent value="chat">
                     <Card>
                       <CardContent className="pt-6">
                         <div className="flex flex-col h-[500px]">
-                          {/* Chat scrollable */}
                           <div className="flex-1 overflow-y-auto mb-4 space-y-4">
                             {messages.length === 0 ? (
                               <div className="text-center py-12 text-muted-foreground h-full flex flex-col items-center justify-center">
                                 <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
                                 <p>Ask a question about the document</p>
                                 <p className="text-sm mt-2">
-                                  The AI will analyze the document and provide answers
+                                  The AI will analyze the document and provide
+                                  answers
                                 </p>
                               </div>
                             ) : (
@@ -525,12 +474,16 @@ const AnalyzePage = () => {
                                     <div className="flex items-center mb-1">
                                       {m.role === "user" ? (
                                         <>
-                                          <span className="font-medium">You</span>
+                                          <span className="font-medium">
+                                            You
+                                          </span>
                                           <User className="h-3 w-3 ml-1" />
                                         </>
                                       ) : (
                                         <>
-                                          <span className="font-medium">AI Assistant</span>
+                                          <span className="font-medium">
+                                            AI Assistant
+                                          </span>
                                           <Bot className="h-3 w-3 ml-1" />
                                         </>
                                       )}
@@ -539,7 +492,9 @@ const AnalyzePage = () => {
                                       {m.content}
                                     </p>
                                     <span className="text-xs opacity-70 mt-1 block text-right">
-                                      {new Date(m.timestamp).toLocaleTimeString()}
+                                      {new Date(
+                                        m.timestamp
+                                      ).toLocaleTimeString()}
                                     </span>
                                   </div>
                                 </div>
@@ -547,12 +502,13 @@ const AnalyzePage = () => {
                             )}
                           </div>
 
-                          {/* Chat input */}
                           <div className="flex items-center space-x-2">
                             <Input
                               placeholder="Ask a question about the document..."
                               value={currentMessage}
-                              onChange={(e) => setCurrentMessage(e.target.value)}
+                              onChange={(e) =>
+                                setCurrentMessage(e.target.value)
+                              }
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" && !e.shiftKey) {
                                   e.preventDefault();
