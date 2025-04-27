@@ -206,14 +206,7 @@ export const api = {
       handleError(error);
       return { reportText: "Error generating report." };
     }
-    const json = JSON.parse(text);                       // then parse JSON
-    console.log("[api] ← parsed JSON:", json);
-    return json;
-  } catch (error) {
-    handleError(error);
-    return { reportText: "Error generating report." };
-  }
-},
+  },
 
   /**
    * 8) POST /documents/{docId}/report-pdf => returns a PDF blob

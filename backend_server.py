@@ -50,7 +50,7 @@ if not OPENAI_API_KEY:
 model_settings = {
     "model": "gpt-4o-mini",
     "temperature": 0.7,
-    "max_tokens": 1024
+    "max_tokens": 1500
 }
 
 app = FastAPI()
