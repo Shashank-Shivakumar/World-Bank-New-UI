@@ -17,3 +17,4 @@ requests
 pymongo
 dotenv
 python-multipart
+fastapi

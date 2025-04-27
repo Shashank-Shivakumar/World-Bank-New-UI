@@ -71,7 +71,9 @@ export const api = {
    */
   async getDocumentPreview(documentId: string): Promise<string> {
     try {
-      const response = await fetch(`${API_URL}/documents/${documentId}/preview`);
+      const response = await fetch(
+        `${API_URL}/documents/${documentId}/preview`
+      );
       if (!response.ok) {
         throw new Error(`Failed to fetch preview: ${response.statusText}`);
       }
@@ -131,7 +133,10 @@ export const api = {
   /**
    * 5) POST /chat/{docId}
    */
-  async sendMessage(documentId: string, message: string): Promise<{ content: string }> {
+  async sendMessage(
+    documentId: string,
+    message: string
+  ): Promise<{ content: string }> {
     try {
       const response = await fetch(`${API_URL}/chat/${documentId}`, {
         method: "POST",
@@ -154,7 +159,10 @@ export const api = {
   /**
    * 6) GET /export/{docId}?format=pdf|csv|json
    */
-  async exportData(documentId: string, format: "pdf" | "csv" | "json"): Promise<string> {
+  async exportData(
+    documentId: string,
+    format: "pdf" | "csv" | "json"
+  ): Promise<string> {
     try {
       const url = `${API_URL}/export/${documentId}?format=${format}`;
       const response = await fetch(url);
@@ -176,18 +184,27 @@ export const api = {
   /**
    * 7) POST /documents/{docId}/report => returns { reportText: string }
    */
-async generateReport(documentId: string, prompt: string): Promise<{reportText: string}> {
-  console.log("[api] → generateReport", { documentId, prompt });
-  try {
-    const response = await fetch(`${API_URL}/documents/${documentId}/report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    });
-    const text = await response.text();                  // grab raw text
-    console.log("[api] ← raw response:", text);
-    if (!response.ok) {
-      throw new Error(`Generate report failed: ${response.status} ${response.statusText}`);
+  async generateReport(
+    documentId: string,
+    prompt: string
+  ): Promise<{ reportText: string }> {
+    console.log("[api] → generateReport", { documentId, prompt });
+    try {
+      const response = await fetch(
+        `${API_URL}/documents/${documentId}/report`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Generate report error: ${response.statusText}`);
+      }
+      return await response.json(); // { reportText }
+    } catch (error) {
+      handleError(error);
+      return { reportText: "Error generating report." };
     }
     const json = JSON.parse(text);                       // then parse JSON
     console.log("[api] ← parsed JSON:", json);
@@ -196,8 +213,7 @@ async generateReport(documentId: string, prompt: string): Promise<{reportText: s
     handleError(error);
     return { reportText: "Error generating report." };
   }
-}
-,
+},
 
   /**
    * 8) POST /documents/{docId}/report-pdf => returns a PDF blob
@@ -205,11 +221,14 @@ async generateReport(documentId: string, prompt: string): Promise<{reportText: s
    */
   async generateReportPdf(documentId: string, fullText: string): Promise<Blob> {
     try {
-      const response = await fetch(`${API_URL}/documents/${documentId}/report-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullText }),
-      });
+      const response = await fetch(
+        `${API_URL}/documents/${documentId}/export-pdf`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fullText }),
+        }
+      );
       if (!response.ok) {
         throw new Error(`PDF generation error: ${response.statusText}`);
       }
@@ -233,7 +252,23 @@ async generateReport(documentId: string, prompt: string): Promise<{reportText: s
       pricing: { input: 0.5, output: 1.5 },
     };
   },
-  async updateModelSettings(settings: Partial<ModelSettings>): Promise<boolean> {
-    return false;
+  async updateModelSettings(
+    settings: Partial<ModelSettings>
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_URL}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update settings: ${response.statusText}`);
+      }
+      return true;
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      toast.error("Failed to update settings");
+      return false;
+    }
   },
 };

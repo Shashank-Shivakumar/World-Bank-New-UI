@@ -86,7 +86,10 @@ export function AppSidebar({
 
     try {
       // This calls your actual LLM endpoint => /documents/{docId}/report
-      const response = await api.generateReport(selectedDocumentId, customPrompt);
+      const response = await api.generateReport(
+        selectedDocumentId,
+        customPrompt
+      );
       // response = { reportText: "...the LLM's text..." }
       setReportPreview(response.reportText);
 
@@ -117,7 +120,10 @@ export function AppSidebar({
 
     try {
       // send the entire text => fullText
-      const pdfBlob = await api.generateReportPdf(selectedDocumentId, reportPreview);
+      const pdfBlob = await api.generateReportPdf(
+        selectedDocumentId,
+        reportPreview
+      );
 
       // Download PDF
       const pdfUrl = URL.createObjectURL(pdfBlob);
@@ -157,7 +163,10 @@ export function AppSidebar({
               {/* Prompt Selector */}
               <div className="space-y-2">
                 <Label>Select Prompt</Label>
-                <Select value={selectedPrompt} onValueChange={setSelectedPrompt}>
+                <Select
+                  value={selectedPrompt}
+                  onValueChange={setSelectedPrompt}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a prompt" />
                   </SelectTrigger>
@@ -182,7 +191,11 @@ export function AppSidebar({
               </div>
 
               {/* Update Button */}
-              <Button onClick={handleUpdateProtocol} className="w-full" variant="outline">
+              <Button
+                onClick={handleUpdateProtocol}
+                className="w-full"
+                variant="outline"
+              >
                 <Save className="mr-2 h-4 w-4" />
                 Update Protocol
               </Button>
