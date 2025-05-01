@@ -53,7 +53,7 @@ import {
 export default function Settings() {
   const [modelSettings, setModelSettings] = useState<ModelSettings>({
     model: "gpt-4o-mini",
-    temperature: 0.7,
+    temperature: 0.0,
     maxTokens: 1500,
     pricing: {
       input: 0.5,
