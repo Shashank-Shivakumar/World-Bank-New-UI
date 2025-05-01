@@ -34,7 +34,7 @@ if not OPENAI_API_KEY:
 
 model_settings = {
     "model": "gpt-4o-mini",
-    "temperature": 0.7,
+    "temperature": 0.0,
     "max_tokens": 1500
 }
 
