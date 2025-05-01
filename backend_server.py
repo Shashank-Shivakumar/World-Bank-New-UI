@@ -9,34 +9,20 @@ from datetime import datetime
 from typing import List, Optional
 from io import BytesIO
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-##############################################
-# PyPDF2 for PDF text extraction
-##############################################
 try:
     from PyPDF2 import PdfReader
 except ImportError:
     print("Warning: PyPDF2 is not installed. PDF extraction may fail.")
     PdfReader = None
 
-##############################################
-# ReportLab for PDF generation
-##############################################
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-
-##############################################
-# OpenAI client – your custom wrapper
-##############################################
 from openai import OpenAI
-
-##############################################
-# Load environment and MongoDB setup
-##############################################
 from dotenv import load_dotenv
 import certifi
 from pymongo import MongoClient
@@ -46,10 +32,16 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     print("Warning: No OPENAI_API_KEY found in environment. LLM endpoints may fail.")
 
+model_settings = {
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "max_tokens": 1500
+}
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For production, restrict origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,9 +56,6 @@ db = mongo_client["projects_db"]
 collection = db["wb_projects"]
 mappings_collection = db["vector_store_mappings"]
 
-##############################################
-# Initialize OpenAI Client
-##############################################
 openai_client = None
 try:
     if OPENAI_API_KEY:
@@ -74,24 +63,24 @@ try:
 except Exception as e:
     print("Failed to initialize OpenAI client:", str(e))
 
-##############################################
-# In-memory document storage for uploads
-##############################################
 huggingface_docs = [
     {"id": "HF1", "name": "HugFaceDoc1", "pad_doc": "Some HF doc text..."},
     {"id": "HF2", "name": "HugFaceDoc2", "pad_doc": "Another HF doc text..."},
 ]
-upload_storage = {}  # Stores uploaded docs: doc_id -> {"name": str, "pad_doc": str}
+upload_storage = {}
 
 
-##############################################
-# Pydantic Models
-##############################################
 class DocumentEntry(BaseModel):
     id: str
     name: str
     source: str
     preview: Optional[str] = None
+
+
+class ModelSettings(BaseModel):
+    model: str
+    temperature: float
+    maxTokens: int
 
 
 class ChatRequest(BaseModel):
@@ -125,9 +114,6 @@ class PDFRequestPayload(BaseModel):
     fullText: str
 
 
-##############################################
-# OpenAI-Based Vector Store Helpers
-##############################################
 def create_vector_store() -> str:
     """
     Creates a new vector store using the OpenAI client and returns its ID.
@@ -174,9 +160,6 @@ def attach_file_to_vector_store(vector_store_id: str, file_id: str):
         raise Exception(f"Error attaching file to vector store: {str(e)}")
 
 
-##############################################
-# Common Helper Functions
-##############################################
 def find_doc_text_by_id(document_id: str) -> Optional[str]:
     """
     Returns document text from:
@@ -184,15 +167,12 @@ def find_doc_text_by_id(document_id: str) -> Optional[str]:
       2) Hugging Face docs
       3) In-memory uploads
     """
-    # Check MongoDB
     doc = collection.find_one({"project_id": document_id}, {"_id": 0, "pad_doc": 1})
     if doc:
         return doc.get("pad_doc", "")
-    # Check Hugging Face docs
     for hf in huggingface_docs:
         if hf["id"] == document_id:
             return hf["pad_doc"]
-    # Check uploads
     if document_id in upload_storage:
         return upload_storage[document_id]["pad_doc"]
     return None
@@ -217,9 +197,6 @@ def set_vector_store_mapping(doc_hash: str, vector_store_id: str):
     )
 
 
-##############################################
-# Indexing Logic (mimicking the Streamlit code)
-##############################################
 def index_document_logic(document_id: str, doc_text: str) -> str:
     """
     Consolidated indexing logic:
@@ -237,25 +214,20 @@ def index_document_logic(document_id: str, doc_text: str) -> str:
         print(f"Document {document_id} already indexed => vector_store_id={existing['vector_store_id']}")
         return existing["vector_store_id"]
     try:
-        # 1. Create a new vector store.
         vector_store_id = create_vector_store()
-        # 2. Upload the document as a file.
         file_id = upload_document_as_file(doc_text)
-        # 3. Attach the uploaded file to the vector store.
         attach_file_to_vector_store(vector_store_id, file_id)
     except Exception as e:
         raise Exception(f"Indexing failed: {str(e)}")
-    # 4. Store the mapping in MongoDB.
     mappings_collection.insert_one({
         "doc_hash": doc_hash,
         "vector_store_id": vector_store_id,
         "document_id": document_id,
         "created_at": datetime.utcnow()
     })
-    # 5. Optionally, trigger an indexing call (for logging or further LLM processing).
     try:
         indexing_response = openai_client.responses.create(
-            model="gpt-4o",  # You can adjust the model as needed.
+            model="gpt-4o",
             input=doc_text,
             tools=[{"type": "file_search", "vector_store_ids": [vector_store_id]}]
         )
@@ -272,24 +244,23 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
       2) Return the final LLM text plus usage/cost info
     """
     if not openai_client:
-        # If no client is configured, return a mock
         return "(OpenAI client not configured, returning mock text.)"
 
     try:
         response = openai_client.responses.create(
-            model="gpt-4o",  # or any model e.g. "gpt-4o-mini"
+            model=model_settings["model"],
             input=user_prompt,
             tools=[{
                 "type": "file_search",
                 "vector_store_ids": [vector_store_id],
                 "max_num_results": 30
-            }]
+            }],
+            temperature=model_settings["temperature"],
+            max_output_tokens=model_settings["max_tokens"]
         )
-        # Extract final text from your client's response:
         if len(response.output) > 1 and hasattr(response.output[1], "content"):
-            content_list = response.output[1].content  # typically a list
+            content_list = response.output[1].content
             if content_list and isinstance(content_list, list):
-                # Take the first chunk’s text
                 first_chunk = content_list[0]
                 answer = first_chunk.text if hasattr(first_chunk, "text") else "(No text found)"
             else:
@@ -297,7 +268,6 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
         else:
             answer = "(No output array returned.)"
 
-        # Optionally, if your client returns usage info, you can append usage/cost:
         usage = getattr(response, "usage", None)
         if usage and hasattr(usage, "input_tokens"):
             input_tokens = usage.input_tokens
@@ -305,7 +275,7 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
             cost_estimate = "(Cost calculation here...)"
             answer += (
                 "\n\n---\n"
-                "🧮 **Usage Summary**\n"
+                "🧮 **Usage Details**\n"
                 f"- Input tokens: {input_tokens}\n"
                 f"- Output tokens: {output_tokens}\n"
                 f"- Estimated cost: {cost_estimate}\n"
@@ -316,9 +286,148 @@ def do_fcv_analysis(doc_text: str, user_prompt: str, vector_store_id: str) -> st
     except Exception as e:
         return f"Error calling openai_client in do_fcv_analysis: {str(e)}"
 
-##############################################
-# Endpoints
-##############################################
+def extract_report_content(llm_output: str):
+    """
+    Extract scores and probabilities from the LLM output.
+    """
+    output = {}
+    total_score = 0
+    characteristic = None
+    current_question = None
+    overall_summary = None
+
+    lines = llm_output.split('\n')
+    for i, line in enumerate(lines):
+        char_match = re.match(r'.*Characteristic \d+: (.+)', line)
+        if char_match:
+            characteristic = char_match.group(1).strip()
+            output[characteristic] = []
+            continue
+        
+        question_match = re.match(r'.*Guiding Question(.+)', line)
+        if question_match and characteristic:
+            current_question = question_match.group(1).strip()
+            output[characteristic].append({
+                'question': current_question,
+                'analysis': None,
+                'probabilities': {},
+                'score': None
+            })
+            continue
+        
+        analysis_match = re.match(r'.*Analysis:(.+)', line)
+        if analysis_match and characteristic and current_question:
+            analysis = analysis_match.group(1).replace("*", "").strip()
+            if output[characteristic]:
+                if analysis:
+                    output[characteristic][-1]['analysis'] = analysis
+                else:
+                    for j in range(i + 1, len(lines)):
+                        next_line = lines[j].strip()
+                        if next_line:
+                            output[characteristic][-1]['analysis'] = next_line
+                        break
+            continue
+
+        prob_match = re.match(r'.*Probabilities:.* score 0 \[(\d+(\.\d+)?)\], score 1 \[(\d+(\.\d+)?)\], score 2 \[(\d+(\.\d+)?)\], score 3 \[(\d+(\.\d+)?)\]', line)
+        if prob_match and characteristic and current_question:
+            probs = list(map(float, prob_match.groups()[::2]))
+            probs_dict = {
+                'score_0': probs[0],
+                'score_1': probs[1],
+                'score_2': probs[2],
+                'score_3': probs[3],
+            }
+            max_prob = max(probs)
+            max_score = probs.index(max_prob)
+            output[characteristic][-1]['probabilities'] = probs_dict
+            output[characteristic][-1]['score'] = max_score
+            total_score += max_score
+            continue
+
+        if line.strip().replace("*", "") == "Probabilities:" and characteristic and current_question:
+            probabilities = {}
+            for j in range(i + 1, len(lines)):
+                prob_line = lines[j].strip()
+                if not prob_line or not prob_line.startswith("-"):
+                    break
+                prob_match = re.match(r'(?i)-\s*score\s*(\d)\s*[:\[]\s*(\d+(\.\d+)?)\s*[\]]?', prob_line)
+                if prob_match:
+                    score = int(prob_match.group(1))
+                    probability = float(prob_match.group(2))
+                    probabilities[f'score_{score}'] = probability
+            if probabilities and characteristic and current_question:
+                max_score = max(probabilities, key=lambda k: probabilities[k])
+                max_score_value = int(max_score.split("_")[1])
+                output[characteristic][-1]['probabilities'] = probabilities
+                output[characteristic][-1]['score'] = max_score_value
+                total_score += max_score_value
+            continue
+
+        if "Summary" in line:
+            summary_line = line.split("Summary", 1)[-1].strip(":").replace("*", "").strip()
+            if summary_line:
+                overall_summary = summary_line
+            else:
+                for j in range(i + 1, len(lines)):
+                    next_line = lines[j].strip()
+                    if next_line:
+                        overall_summary = next_line
+                        break
+
+    summary = {
+        "total_score": total_score,
+        "overall_summary": overall_summary
+    }
+
+    return output, summary
+
+def export_report_as_pdf(extracted_results, summary):
+    """
+    Export the extracted results and total score as a PDF.
+    """
+    pdf_buffer = BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer)
+    styles = getSampleStyleSheet()
+    story = []
+
+    def clean_text(text):
+        return text.replace("*", "").strip()
+
+    story.append(Paragraph("Evaluation of the Project Appraisal Document (PAD) based on the FCV-Sensitivity Assessment Protocol", styles["Heading1"]))
+    story.append(Paragraph(f"Total FCV Sensitivity Score: {summary['total_score']}", styles["Heading2"]))
+    story.append(Paragraph("<br/>", styles["Normal"]))
+
+    if summary['overall_summary']:
+        story.append(Paragraph("<b>Overall Summary:</b>", styles["Heading3"]))
+        story.append(Paragraph(clean_text(summary['overall_summary']), styles["Normal"]))
+        story.append(Paragraph("<br/>", styles["Normal"]))
+
+    for characteristic, questions in extracted_results.items():
+        story.append(Paragraph(f"Characteristic: {clean_text(characteristic)}", styles["Heading3"]))
+        story.append(Paragraph("<br/>", styles["Normal"]))
+
+        for question_data in questions:
+            story.append(Paragraph(f"<b>Guiding Question:</b> {clean_text(question_data['question'])}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+            story.append(Paragraph(f"<b>Analysis:</b> {clean_text(question_data['analysis'])}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+            story.append(Paragraph(f"<b>Score:</b> {question_data['score']}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+            probabilities = question_data['probabilities']
+            prob_line = ", ".join([f"{score}: {probability:.2f}" for score, probability in probabilities.items()])
+            story.append(Paragraph(f"<b>Probabilities:</b> {prob_line}", styles["Normal"]))
+            story.append(Paragraph("<br/>", styles["Normal"]))
+
+    doc.build(story)
+    pdf_data = pdf_buffer.getvalue()
+    pdf_buffer.close()
+    return pdf_data
+
+
 @app.get("/")
 def root():
     return {"message": "Backend up with PDF support and Streamlit-like indexing."}
@@ -330,19 +439,16 @@ def get_document_sources():
     Returns a list of all documents from MongoDB, Hugging Face docs, and uploaded files.
     """
     results = []
-    # MongoDB documents
     mongo_docs = collection.find({}, {"_id": 0, "project_id": 1, "pad_doc": 1})
     for doc in mongo_docs:
         pid = doc["project_id"]
         text = doc.get("pad_doc", "")
         short_prev = text[:60] + "..." if len(text) > 60 else text
         results.append(DocumentEntry(id=pid, name=pid, source="mongodb", preview=short_prev))
-    # Hugging Face documents
     for hf in huggingface_docs:
         text = hf["pad_doc"]
         short_prev = text[:60] + "..." if len(text) > 60 else text
         results.append(DocumentEntry(id=hf["id"], name=hf["name"], source="huggingface", preview=short_prev))
-    # Uploaded documents
     for doc_id, data in upload_storage.items():
         text = data["pad_doc"] or ""
         short_prev = text[:60] + "..." if len(text) > 60 else text
@@ -358,41 +464,35 @@ def get_document_preview(document_id: str):
     return text
 
 
-# @app.post("/documents/upload", response_model=DocumentEntry)
-# async def upload_document(file: UploadFile = File(...)):
-#     """
-#     Uploads and parses a document (PDF or text), stores it in memory,
-#     and automatically indexes the document.
-#     """
-#     try:
-#         content = await file.read()
-#         filename = file.filename
-#         extension = filename.split(".")[-1].lower()
-#         extracted_text = ""
-#         if extension == "pdf":
-#             if not PdfReader:
-#                 raise HTTPException(500, "PyPDF2 not available to parse PDF files.")
-#             try:
-#                 reader = PdfReader(BytesIO(content))
-#                 for page in reader.pages:
-#                     page_text = page.extract_text()
-#                     if page_text:
-#                         extracted_text += page_text + "\n"
-#             except Exception as e:
-#                 print("PDF parsing error:", e)
-#                 extracted_text = f"(Error extracting PDF text: {e})\n\n" + content.decode("utf-8", errors="replace")
-#         else:
-#             extracted_text = content.decode("utf-8", errors="replace")
-#         new_id = f"UP_{len(upload_storage) + 1}"
-#         upload_storage[new_id] = {"name": filename, "pad_doc": extracted_text}
-#         # Automatically index the uploaded document.
-#         vector_store_id = index_document_logic(new_id, extracted_text)
-#         print(f"Uploaded file auto-indexed with vector store id: {vector_store_id}")
-#         short_prev = extracted_text[:60] + "..." if len(extracted_text) > 60 else extracted_text
-#         return DocumentEntry(id=new_id, name=filename, source="upload", preview=short_prev)
-#     except Exception as e:
-#         raise HTTPException(500, f"Error uploading/parsing file: {str(e)}")
-#
+@app.post("/documents/{document_id}/export-pdf")
+def export_pdf(document_id: str, payload: PDFRequestPayload, background_tasks: BackgroundTasks):
+    """
+    Generates a PDF report from the extracted results and summary.
+    """
+    extracted_results = payload.fullText
+
+    if not extracted_results:
+        raise HTTPException(status_code=400, detail="Invalid data for PDF generation")
+
+    try:
+        extracted_results, summary = extract_report_content(extracted_results)
+        pdf_data = export_report_as_pdf(extracted_results, summary)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(pdf_data)
+            tmp_file_path = tmp_file.name
+        
+        background_tasks.add_task(os.unlink, tmp_file_path)
+
+        return FileResponse(
+            path=tmp_file_path,
+            media_type="application/pdf",
+            filename=f"report_{document_id}.pdf"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
+
+
 
 @app.post("/documents/upload", response_model=DocumentEntry)
 async def upload_document(file: UploadFile = File(...)):
@@ -421,16 +521,12 @@ async def upload_document(file: UploadFile = File(...)):
         else:
             extracted_text = content.decode("utf-8", errors="replace")
 
-        # Extract document_id from filename:
-        # If the filename contains an underscore, take the first part (e.g., "P164164" from "P164164_Project_Appraisal_Document.pdf").
-        # Otherwise, fall back to the previous behavior.
         if "_" in filename:
             new_id = filename.split("_")[0]
         else:
             new_id = f"UP_{len(upload_storage) + 1}"
 
         upload_storage[new_id] = {"name": filename, "pad_doc": extracted_text}
-        # Automatically index the uploaded document.
         vector_store_id = index_document_logic(new_id, extracted_text)
         print(f"Uploaded file auto-indexed with vector store id: {vector_store_id}")
         short_prev = extracted_text[:60] + "..." if len(extracted_text) > 60 else extracted_text
@@ -453,6 +549,22 @@ def index_document_endpoint(document_id: str):
         return IndexResponse(success=True, vector_store_id=vs_id, message="Document indexed.")
     except Exception as e:
         raise HTTPException(500, f"Indexing failed: {str(e)}")
+
+
+@app.post("/settings")
+def update_settings(settings: ModelSettings = Body(...)):
+    """
+    Updates the model settings.
+    """
+    global model_settings
+    try:
+        model_settings["model"] = settings.model
+        model_settings["temperature"] = settings.temperature
+        model_settings["max_tokens"] = settings.maxTokens
+        print("Updated settings:", model_settings)
+        return {"success": True, "message": "Settings updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating settings: {str(e)}")
 
 
 @app.post("/chat/{document_id}", response_model=ChatResponse)
@@ -566,13 +678,10 @@ def export_data(document_id: str, format: str = Query(...)):
         return {"document_id": document_id, "analysis": "Mock JSON data here."}
     elif format == "csv":
         return {"data": "Mock CSV data here."}
-    else:  # pdf
+    else:
         return {"data": "Mock PDF data here."}
 
 
-##############################################
-# Main Execution
-##############################################
 if __name__ == "__main__":
     import uvicorn
 

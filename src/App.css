@@ -1,5 +1,3 @@
-
-/* Root container styles */
 #root {
   margin: 0;
   padding: 0;
@@ -8,7 +6,6 @@
   text-align: left;
 }
 
-/* Animation keyframes for spinners and loaders */
 @keyframes logo-spin {
   from {
     transform: rotate(0deg);
@@ -18,14 +15,12 @@
   }
 }
 
-/* Responsive chart container for small screens */
 @media (max-width: 640px) {
   .chart-container {
     height: 200px !important;
   }
 }
 
-/* Responsive adjustments for tables on small screens */
 @media (max-width: 480px) {
   .table-responsive th,
   .table-responsive td {
