@@ -96,6 +96,8 @@ class DocumentEntry(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    temperature: Optional[float] = 0  # Default is now 0
+
 
 
 class ChatResponse(BaseModel):
@@ -457,19 +459,23 @@ def index_document_endpoint(document_id: str):
 def chat_document(document_id: str, payload: ChatRequest):
     """
     Chat endpoint: retrieves the document text, confirms indexing,
-    and then queries the LLM.
+    and then queries the LLM with the specified temperature (default=0).
     """
     doc_text = find_doc_text_by_id(document_id)
     if not doc_text:
         raise HTTPException(404, f"Document {document_id} not found")
+    
     doc_hash = compute_doc_hash(doc_text)
     mapping = mappings_collection.find_one({"doc_hash": doc_hash})
     if not mapping or not mapping.get("vector_store_id"):
         raise HTTPException(400, "Document not indexed. Please index first.")
+    
     vs_id = mapping["vector_store_id"]
     user_message = payload.message
+    temperature = payload.temperature if payload.temperature is not None else 0
     now = datetime.now().isoformat()
     answer = ""
+
     if not openai_client:
         excerpt = doc_text[:300]
         answer = (
@@ -481,7 +487,12 @@ def chat_document(document_id: str, payload: ChatRequest):
             response = openai_client.responses.create(
                 model="gpt-4o",
                 input=user_message,
-                tools=[{"type": "file_search", "vector_store_ids": [vs_id], "max_num_results": 30}]
+                temperature=temperature,
+                tools=[{
+                    "type": "file_search",
+                    "vector_store_ids": [vs_id],
+                    "max_num_results": 30
+                }]
             )
             if len(response.output) > 1 and hasattr(response.output[1], "content"):
                 content_list = response.output[1].content
@@ -494,7 +505,9 @@ def chat_document(document_id: str, payload: ChatRequest):
                 answer = "(No output array returned.)"
         except Exception as e:
             answer = f"Error calling openai_client: {str(e)}"
+
     return ChatResponse(id=f"chat_{time.time()}", role="assistant", content=answer, timestamp=now)
+
 
 
 @app.post("/documents/{document_id}/report", response_model=ReportResponse)
